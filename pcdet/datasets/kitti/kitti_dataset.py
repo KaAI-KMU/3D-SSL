@@ -61,7 +61,7 @@ class KittiDataset(DatasetTemplate):
         self.split = split
         self.root_split_path = self.root_path / ('training' if self.split != 'test' else 'testing')
 
-        if self.dataset_cfg.SPLIT_NAME is not None:
+        if self.dataset_cfg.get('SPLIT_NAME',None) is not None:
             split_dir = self.root_path / 'ImageSets' / ("%s_%s.txt" % (self.split, self.dataset_cfg.SPLIT_NAME))
         else:
             split_dir = self.root_path / 'ImageSets' / ("%s.txt" % self.split)
