@@ -10,3 +10,5 @@ tqdm
 torchvision
 SharedArray
 opencv-python
+av2==0.2.0
+kornia
