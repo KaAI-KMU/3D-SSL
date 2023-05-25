@@ -27,12 +27,10 @@ class RoIHeadTemplate(nn.Module):
         )
         if losses_cfg.get('SCORE_WEIGHTS', None) is not None:
             self.score_weight = True
-            self.reg_score_weight_type = losses_cfg.SCORE_WEIGHTS.REG_WEIGHT_TYPE
-            self.cls_score_weight_type = losses_cfg.SCORE_WEIGHTS.CLS_WEIGHT_TYPE
+            self.score_weight_cfg = losses_cfg.SCORE_WEIGHTS
         else:
             self.score_weight = False
-            self.reg_score_weight_type = None
-            self.cls_score_weight_type = None
+            self.score_weight_cfg = None
 
     def make_fc_layers(self, input_channels, output_channels, fc_list):
         fc_layers = []
@@ -112,8 +110,7 @@ class RoIHeadTemplate(nn.Module):
     def assign_targets(self, batch_dict):
         batch_size = batch_dict['batch_size']
         batch_dict['score_weight'] = self.score_weight
-        batch_dict['reg_score_weight_type'] = self.reg_score_weight_type if self.score_weight else list(batch_dict['scores'].keys())[0]
-        batch_dict['cls_score_weight_type'] = self.cls_score_weight_type if self.score_weight else list(batch_dict['scores'].keys())[1]
+        batch_dict['score_weight_cfg'] = self.score_weight_cfg
         with torch.no_grad():
             targets_dict = self.proposal_target_layer.forward(batch_dict)
 

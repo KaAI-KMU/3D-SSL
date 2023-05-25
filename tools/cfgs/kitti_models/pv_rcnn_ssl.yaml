@@ -227,6 +227,7 @@ MODEL:
                 SIGMOID: True
                 TAU_REG: [0.5, 0.25, 0.25]
                 TAU_CLS: [0.4, 0.4, 0.4]
+                CLASS_NAMES: ['Car', 'Pedestrian', 'Cyclist']
 
     POST_PROCESSING:
         RECALL_THRESH_LIST: [0.3, 0.5, 0.7]

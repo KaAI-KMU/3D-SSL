@@ -87,12 +87,10 @@ class AnchorHeadTemplate(nn.Module):
         )
         if losses_cfg.get('SCORE_WEIGHTS', None) is not None:
             self.score_weight = True
-            self.reg_score_weight_type = losses_cfg.SCORE_WEIGHTS.REG_WEIGHT_TYPE
-            self.cls_score_weight_type = losses_cfg.SCORE_WEIGHTS.CLS_WEIGHT_TYPE
+            self.score_weight_cfg = losses_cfg.SCORE_WEIGHTS
         else:
             self.score_weight = False
-            self.reg_score_weight_type = None
-            self.cls_score_weight_type = None
+            self.score_weight_cfg = None
 
     def assign_targets(self, gt_boxes, scores):
         """
@@ -102,7 +100,7 @@ class AnchorHeadTemplate(nn.Module):
 
         """
         targets_dict = self.target_assigner.assign_targets(
-            self.anchors, gt_boxes, scores, reg_score_type=self.reg_score_weight_type, cls_score_type=self.cls_score_weight_type
+            self.anchors, gt_boxes, scores, score_weight_cfg=self.score_weight_cfg
         )
         return targets_dict
 

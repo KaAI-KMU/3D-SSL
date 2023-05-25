@@ -79,17 +79,32 @@ class ProposalTargetLayer(nn.Module):
         roi_scores = batch_dict['roi_scores']
         roi_labels = batch_dict['roi_labels']
         gt_boxes = batch_dict['gt_boxes']
-        cls_scores = batch_dict[batch_dict['cls_score_weight_type']]
-        reg_scores = batch_dict[batch_dict['reg_score_weight_type']]
-
+        if 'score_weight_cfg' not in batch_dict:
+            score_weight = False
+            sigmoid_weight = False
+            cls_scores = None
+            reg_scores = None
+        else:
+            score_weight = True
+            sigmoid_weight = batch_dict['score_weight_cfg'].SIGMOID
+            score_weights_cfg = batch_dict['score_weight_cfg']
+            cls_scores = batch_dict[score_weights_cfg.CLS_WEIGHT_TYPE]
+            reg_scores = batch_dict[score_weights_cfg.REG_WEIGHT_TYPE]
+            tau_reg = torch.tensor(score_weights_cfg.TAU_REG, device=rois.device)
+            tau_cls = torch.tensor(score_weights_cfg.TAU_CLS, device=rois.device)
+            
         code_size = rois.shape[-1]
         batch_rois = rois.new_zeros(batch_size, self.roi_sampler_cfg.ROI_PER_IMAGE, code_size)
         batch_gt_of_rois = rois.new_zeros(batch_size, self.roi_sampler_cfg.ROI_PER_IMAGE, code_size + 1)
         batch_roi_ious = rois.new_zeros(batch_size, self.roi_sampler_cfg.ROI_PER_IMAGE)
         batch_roi_scores = rois.new_zeros(batch_size, self.roi_sampler_cfg.ROI_PER_IMAGE)
         batch_roi_labels = rois.new_zeros((batch_size, self.roi_sampler_cfg.ROI_PER_IMAGE), dtype=torch.long)
-        batch_cls_score_weights = rois.new_ones(batch_size, self.roi_sampler_cfg.ROI_PER_IMAGE, dtype=torch.float32)
-        batch_reg_score_weights = rois.new_zeros(batch_size, self.roi_sampler_cfg.ROI_PER_IMAGE, dtype=torch.float32)
+        if score_weight:
+            batch_cls_score_weights = rois.new_ones(batch_size, self.roi_sampler_cfg.ROI_PER_IMAGE, dtype=torch.float32)
+            batch_reg_score_weights = rois.new_zeros(batch_size, self.roi_sampler_cfg.ROI_PER_IMAGE, dtype=torch.float32)
+        else:
+            batch_cls_score_weights = None
+            batch_reg_score_weights = None
 
         for index in range(batch_size):
             cur_roi, cur_gt, cur_roi_labels, cur_roi_scores, cur_cls_scores, cur_reg_scores = \
@@ -116,8 +131,11 @@ class ProposalTargetLayer(nn.Module):
             batch_roi_ious[index] = max_overlaps[sampled_inds]
             batch_roi_scores[index] = cur_roi_scores[sampled_inds]
             batch_gt_of_rois[index] = cur_gt[gt_assignment[sampled_inds]]
-            batch_cls_score_weights[index] = cur_cls_scores[gt_assignment[sampled_inds]]
-            batch_reg_score_weights[index] = cur_reg_scores[gt_assignment[sampled_inds]]
+            if sigmoid_weight:
+                batch_cls_score_weights[index] = \
+                    _sigmoid(cur_cls_scores[gt_assignment[sampled_inds]], tau_cls[batch_gt_of_rois[index][:, -1].type(torch.int32)-1])
+                batch_reg_score_weights[index] = \
+                    _sigmoid(cur_reg_scores[gt_assignment[sampled_inds]], tau_reg[batch_gt_of_rois[index][:, -1].type(torch.int32)-1])
 
         return batch_rois, batch_gt_of_rois, batch_roi_ious, batch_roi_scores, batch_roi_labels,\
             batch_cls_score_weights, batch_reg_score_weights
@@ -234,3 +252,6 @@ class ProposalTargetLayer(nn.Module):
                 gt_assignment[roi_mask] = original_gt_assignment[cur_gt_assignment]
 
         return max_overlaps, gt_assignment
+    
+def _sigmoid(x, tau):
+    return torch.sigmoid(x - tau)

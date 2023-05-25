@@ -14,6 +14,7 @@ class AxisAlignedTargetAssigner(object):
         self.box_coder = box_coder
         self.match_height = match_height
         self.class_names = np.array(class_names)
+        self.class_mapper = {class_name: i for i, class_name in enumerate(class_names)}
         self.anchor_class_names = [config['class_name'] for config in anchor_generator_cfg]
         self.pos_fraction = anchor_target_cfg.POS_FRACTION if anchor_target_cfg.POS_FRACTION >= 0 else None
         self.sample_size = anchor_target_cfg.SAMPLE_SIZE
@@ -33,7 +34,7 @@ class AxisAlignedTargetAssigner(object):
         #         for idx, name in enumerate(rpn_head_cfg['HEAD_CLS_NAME']):
         #             self.gt_remapping[name] = idx + 1
 
-    def assign_targets(self, all_anchors, gt_boxes_with_classes, scores=None, reg_score_type=None, cls_score_type=None):
+    def assign_targets(self, all_anchors, gt_boxes_with_classes, scores=None, score_weight_cfg=None):
         """
         Args:
             all_anchors: [(N, 7), ...]
@@ -45,16 +46,25 @@ class AxisAlignedTargetAssigner(object):
         Returns:
 
         """
-        if reg_score_type is None:
-            assert cls_score_type is None
+        if score_weight_cfg is None:
+            score_weight = False
+            sigmoid_weight = False
             reg_score_type = list(scores.keys())[0]
             cls_score_type = list(scores.keys())[1]
+        else:
+            score_weight = True
+            sigmoid_weight = score_weight_cfg.SIGMOID
+            reg_score_type = score_weight_cfg.REG_WEIGHT_TYPE
+            cls_score_type = score_weight_cfg.CLS_WEIGHT_TYPE
+            tau_reg = torch.tensor(score_weight_cfg.TAU_REG, device=gt_boxes_with_classes.device)
+            tau_cls = torch.tensor(score_weight_cfg.TAU_CLS, device=gt_boxes_with_classes.device)
 
         bbox_targets = []
         cls_labels = []
         reg_weights = []
-        reg_score_weights = []
-        cls_score_weights = []
+        if score_weight:
+            reg_score_weights = []
+            cls_score_weights = []
 
         batch_size = gt_boxes_with_classes.shape[0]
         gt_classes = gt_boxes_with_classes[:, :, -1]
@@ -66,8 +76,9 @@ class AxisAlignedTargetAssigner(object):
                 cnt -= 1
             cur_gt = cur_gt[:cnt + 1]
             cur_gt_classes = gt_classes[k][:cnt + 1].int()
-            cur_reg_scores = scores[reg_score_type][k][:cnt + 1]
-            cur_cls_scores = scores[cls_score_type][k][:cnt + 1]
+            if score_weight:
+                cur_reg_scores = scores[reg_score_type][k][:cnt + 1]
+                cur_cls_scores = scores[cls_score_type][k][:cnt + 1]
 
             target_list = []
             for anchor_class_name, anchors in zip(self.anchor_class_names, all_anchors):
@@ -91,8 +102,16 @@ class AxisAlignedTargetAssigner(object):
                     feature_map_size = anchors.shape[:3]
                     anchors = anchors.view(-1, anchors.shape[-1])
                     selected_classes = cur_gt_classes[mask]
-                    selected_reg_scores = cur_reg_scores[mask]
-                    selected_cls_scores = cur_cls_scores[mask]
+                    if score_weight:
+                        selected_reg_scores = cur_reg_scores[mask]
+                        selected_cls_scores = cur_cls_scores[mask]
+                    else:
+                        selected_reg_scores = None
+                        selected_cls_scores = None
+                
+                if sigmoid_weight:
+                    selected_reg_scores = torch.sigmoid(selected_reg_scores - tau_reg[self.class_mapper[anchor_class_name]])
+                    selected_cls_scores = torch.sigmoid(selected_cls_scores - tau_cls[self.class_mapper[anchor_class_name]])
 
                 single_target = self.assign_targets_single(
                     anchors,
@@ -188,15 +207,19 @@ class AxisAlignedTargetAssigner(object):
             gt_inds_force = anchor_to_gt_argmax[anchors_with_max_overlap]
             labels[anchors_with_max_overlap] = gt_classes[gt_inds_force]
             gt_ids[anchors_with_max_overlap] = gt_inds_force.int()
-            reg_score_weights[anchors_with_max_overlap] = reg_scores[gt_inds_force]
-            cls_score_weights[anchors_with_max_overlap] = cls_scores[gt_inds_force]
+            if reg_scores is not None:
+                reg_score_weights[anchors_with_max_overlap] = reg_scores[gt_inds_force]
+            if cls_scores is not None:
+                cls_score_weights[anchors_with_max_overlap] = cls_scores[gt_inds_force]
 
             pos_inds = anchor_to_gt_max >= matched_threshold
             gt_inds_over_thresh = anchor_to_gt_argmax[pos_inds]
             labels[pos_inds] = gt_classes[gt_inds_over_thresh]
             gt_ids[pos_inds] = gt_inds_over_thresh.int()
-            reg_score_weights[pos_inds] = reg_scores[gt_inds_over_thresh]
-            cls_score_weights[pos_inds] = cls_scores[gt_inds_over_thresh]
+            if reg_scores is not None:
+                reg_score_weights[pos_inds] = reg_scores[gt_inds_over_thresh]
+            if cls_scores is not None:
+                cls_score_weights[pos_inds] = cls_scores[gt_inds_over_thresh]
             bg_inds = (anchor_to_gt_max < unmatched_threshold).nonzero()[:, 0]
         else:
             bg_inds = torch.arange(num_anchors, device=anchors.device)
