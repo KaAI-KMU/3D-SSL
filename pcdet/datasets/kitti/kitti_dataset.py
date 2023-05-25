@@ -26,14 +26,10 @@ class KittiDataset(DatasetTemplate):
         self.split = self.dataset_cfg.DATA_SPLIT[self.mode]
         self.root_split_path = self.root_path / ('training' if self.split != 'test' else 'testing')
 
-        if self.dataset_cfg.get('SPLIT_NAME', None) is not None:
-            split_dir = self.root_path / 'ImageSets' / ("%s_%s.txt" % (self.split, self.dataset_cfg.SPLIT_NAME))
-        else:
-            split_dir = self.root_path / 'ImageSets' / ("%s.txt" % self.split)
+        split_dir = self.root_path / 'ImageSets' / (self.split + '.txt')
         self.sample_id_list = [x.strip() for x in open(split_dir).readlines()] if split_dir.exists() else None
 
         self.kitti_infos = []
-        self.score_keys = ['iou_scores', 'cls_scores']
         self.include_kitti_data(self.mode)
 
     def include_kitti_data(self, mode):
@@ -61,10 +57,7 @@ class KittiDataset(DatasetTemplate):
         self.split = split
         self.root_split_path = self.root_path / ('training' if self.split != 'test' else 'testing')
 
-        if self.dataset_cfg.get('SPLIT_NAME',None) is not None:
-            split_dir = self.root_path / 'ImageSets' / ("%s_%s.txt" % (self.split, self.dataset_cfg.SPLIT_NAME))
-        else:
-            split_dir = self.root_path / 'ImageSets' / ("%s.txt" % self.split)
+        split_dir = self.root_path / 'ImageSets' / (self.split + '.txt')
         self.sample_id_list = [x.strip() for x in open(split_dir).readlines()] if split_dir.exists() else None
 
     def get_lidar(self, idx):
@@ -269,8 +262,7 @@ class KittiDataset(DatasetTemplate):
                     db_path = str(filepath.relative_to(self.root_path))  # gt_database/xxxxx.bin
                     db_info = {'name': names[i], 'path': db_path, 'image_idx': sample_idx, 'gt_idx': i,
                                'box3d_lidar': gt_boxes[i], 'num_points_in_gt': gt_points.shape[0],
-                               'difficulty': difficulty[i], 'bbox': bbox[i], 'score': annos['score'][i],
-                               'iou_score': 1.0, 'cls_score': 1.0}
+                               'difficulty': difficulty[i], 'bbox': bbox[i], 'score': annos['score'][i]}
                     if names[i] in all_db_infos:
                         all_db_infos[names[i]].append(db_info)
                     else:
@@ -443,7 +435,7 @@ class KittiDataset(DatasetTemplate):
         return data_dict
 
 
-def create_kitti_infos(dataset_cfg, class_names, data_path, save_path, create_db_only=False, workers=4):
+def create_kitti_infos(dataset_cfg, class_names, data_path, save_path, workers=4):
     dataset = KittiDataset(dataset_cfg=dataset_cfg, class_names=class_names, root_path=data_path, training=False)
     train_split, val_split = 'train', 'val'
 
@@ -452,35 +444,29 @@ def create_kitti_infos(dataset_cfg, class_names, data_path, save_path, create_db
     trainval_filename = save_path / 'kitti_infos_trainval.pkl'
     test_filename = save_path / 'kitti_infos_test.pkl'
 
-    if not create_db_only:
-        print('---------------Start to generate data infos---------------')
+    print('---------------Start to generate data infos---------------')
 
-        dataset.set_split(train_split)
-        kitti_infos_train = dataset.get_infos(num_workers=workers, has_label=True, count_inside_pts=True)
-        with open(train_filename, 'wb') as f:
-            pickle.dump(kitti_infos_train, f)
-        print('Kitti info train file is saved to %s' % train_filename)
-
-        dataset.set_split(val_split)
-        kitti_infos_val = dataset.get_infos(num_workers=workers, has_label=True, count_inside_pts=True)
-        with open(val_filename, 'wb') as f:
-            pickle.dump(kitti_infos_val, f)
-        print('Kitti info val file is saved to %s' % val_filename)
-
-        with open(trainval_filename, 'wb') as f:
-            pickle.dump(kitti_infos_train + kitti_infos_val, f)
-        print('Kitti info trainval file is saved to %s' % trainval_filename)
-
-        dataset.set_split('test')
-        kitti_infos_test = dataset.get_infos(num_workers=workers, has_label=False, count_inside_pts=False)
-        with open(test_filename, 'wb') as f:
-            pickle.dump(kitti_infos_test, f)
-        print('Kitti info test file is saved to %s' % test_filename)
-
-    print('---------------Start create groundtruth database for data augmentation---------------')
     dataset.set_split(train_split)
-    dataset.create_groundtruth_database(train_filename, split=train_split)
+    kitti_infos_train = dataset.get_infos(num_workers=workers, has_label=True, count_inside_pts=True)
+    with open(train_filename, 'wb') as f:
+        pickle.dump(kitti_infos_train, f)
+    print('Kitti info train file is saved to %s' % train_filename)
 
+    dataset.set_split(val_split)
+    kitti_infos_val = dataset.get_infos(num_workers=workers, has_label=True, count_inside_pts=True)
+    with open(val_filename, 'wb') as f:
+        pickle.dump(kitti_infos_val, f)
+    print('Kitti info val file is saved to %s' % val_filename)
+
+    with open(trainval_filename, 'wb') as f:
+        pickle.dump(kitti_infos_train + kitti_infos_val, f)
+    print('Kitti info trainval file is saved to %s' % trainval_filename)
+
+    dataset.set_split('test')
+    kitti_infos_test = dataset.get_infos(num_workers=workers, has_label=False, count_inside_pts=False)
+    with open(test_filename, 'wb') as f:
+        pickle.dump(kitti_infos_test, f)
+    print('Kitti info test file is saved to %s' % test_filename)
     print('---------------Data preparation Done---------------')
 
 
@@ -498,17 +484,3 @@ if __name__ == '__main__':
             data_path=ROOT_DIR / 'data' / 'kitti',
             save_path=ROOT_DIR / 'data' / 'kitti'
         )
-    if sys.argv.__len__() > 2 and sys.argv[1] == 'create_split_db':
-        import yaml
-        from pathlib import Path
-        from easydict import EasyDict
-        dataset_cfg = EasyDict(yaml.safe_load(open(sys.argv[2])))
-        dataset_cfg.SPLIT_NAME = sys.argv[3]
-        ROOT_DIR = (Path(__file__).resolve().parent / '../../../').resolve()
-        create_kitti_infos(
-            dataset_cfg=dataset_cfg,
-            class_names=['Car', 'Pedestrian', 'Cyclist'],
-            data_path=ROOT_DIR / 'data' / 'kitti',
-            save_path=ROOT_DIR / 'data' / 'kitti',
-            create_db_only=True
-        )        

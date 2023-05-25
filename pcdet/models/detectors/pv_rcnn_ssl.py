@@ -40,21 +40,18 @@ class PVRCNNSSL(Detector3DTemplate):
                     batch_dict = cur_module(batch_dict)
                 pred_dicts, _ = self.pv_rcnn_ema.post_processing(batch_dict)
 
+            # Generate batch_dict with pseudo labels
+            pseudo_label = copy.deepcopy(pred_dicts)
             if filtering: # Filter boxes by score
                 cls_threshold = np.array(self.model_cfg.SSL_CONFIG.FILTERING_CONFIG.CLS_THRESHOLD)
                 iou_threshold = np.array(self.model_cfg.SSL_CONFIG.FILTERING_CONFIG.IOU_THRESHOLD)
                 thresholds = np.stack((cls_threshold, iou_threshold))
-
-            # Generate batch_dict with pseudo labels
-            pseudo_label = copy.deepcopy(pred_dicts)
-            for batch_idx in range(batch_size):
-                if filtering:
+                for batch_idx in range(batch_size):
                     scores = torch.stack((pred_dicts[batch_idx]['pred_cls_scores'], pred_dicts[batch_idx]['pred_scores']))
                     selected = box_filtering_by_score(pred_dicts[batch_idx]['pred_boxes'], pred_dicts[batch_idx]['pred_labels'], scores, thresholds)
                     for key, val in pred_dicts[batch_idx].items():
-                        pseudo_label[batch_idx][key] = val[selected]
-                else:
-                    pseudo_label = pred_dicts
+                        pred_dicts[batch_idx][key] = val[selected]
+
             batch_dict_train = self.dataset.generate_datadict(pseudo_label, batch_dict)
             del batch_dict
 

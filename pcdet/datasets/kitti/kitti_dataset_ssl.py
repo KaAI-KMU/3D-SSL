@@ -32,6 +32,8 @@ class KittiDatasetSSL(KittiDataset):
             self.label_indices = np.loadtxt(imageset_file, dtype=np.int32)
             self.class_names_map = {i+1: class_name for i, class_name in enumerate(self.class_names)}
 
+        self.score_keys = dataset_cfg.get('SCORE_KEYS', ['iou_scores', 'cls_scores'])
+
     def __getitem__(self, index, pseudo_label_dict=None):
         if not self.training: # for evaluation
             return super().__getitem__(index)
@@ -42,6 +44,7 @@ class KittiDatasetSSL(KittiDataset):
             data_dict.update({
                 'gt_names': pseudo_label_dict['gt_names'],
                 'gt_boxes': pseudo_label_dict['gt_boxes'],
+                'score_keys': self.score_keys,
             })
             for key in self.score_keys:
                 data_dict[key] = pseudo_label_dict[key]
@@ -128,8 +131,9 @@ class KittiDatasetSSL(KittiDataset):
                     db_path = str(filepath.relative_to(self.root_path))  # gt_database/xxxxx.bin
                     db_info = {'name': names[i], 'path': db_path, 'image_idx': sample_idx, 'gt_idx': i,
                                'box3d_lidar': gt_boxes[i], 'num_points_in_gt': gt_points.shape[0],
-                               'difficulty': difficulty[i], 'bbox': bbox[i], 'score': annos['score'][i],
-                               'iou_scores': 1.0, 'cls_scores': 1.0}
+                               'difficulty': difficulty[i], 'bbox': bbox[i], 'score': annos['score'][i]}
+                    for key in self.score_keys.keys():
+                        db_info[key] = 1.0
                     if names[i] in all_db_infos:
                         all_db_infos[names[i]].append(db_info)
                     else:

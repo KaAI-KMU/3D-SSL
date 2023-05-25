@@ -29,6 +29,7 @@ DATA_CONFIG:
 
             - NAME: random_world_scaling
               WORLD_SCALE_RANGE: [0.95, 1.05]
+    SCORE_KEYS: ["iou_scores", "cls_scores"]              
 
 MODEL:
     NAME: PVRCNNSSL
@@ -112,7 +113,10 @@ MODEL:
             SCORE_WEIGHTS:
                 SCORE_WEIGHTS: True
                 REG_WEIGHT_TYPE: iou_scores
-                CLS_WEIGHT_TYPE: cls_scores
+                CLS_WEIGHT_TYPE: iou_scores
+                SIGMOID: True
+                TAU_REG: [0.5, 0.25, 0.25]
+                TAU_CLS: [0.4, 0.4, 0.4]                
 
     PFE:
         NAME: VoxelSetAbstraction
@@ -219,7 +223,10 @@ MODEL:
             SCORE_WEIGHTS:
                 SCORE_WEIGHTS: True
                 REG_WEIGHT_TYPE: iou_scores
-                CLS_WEIGHT_TYPE: cls_scores            
+                CLS_WEIGHT_TYPE: iou_scores
+                SIGMOID: True
+                TAU_REG: [0.5, 0.25, 0.25]
+                TAU_CLS: [0.4, 0.4, 0.4]
 
     POST_PROCESSING:
         RECALL_THRESH_LIST: [0.3, 0.5, 0.7]
