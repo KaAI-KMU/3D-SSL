@@ -9,30 +9,6 @@ from pcdet.models import load_data_to_gpu
 from pcdet.utils import common_utils
 from pcdet.ops.iou3d_nms.iou3d_nms_utils import boxes_iou3d_gpu
 
-def statistics(pred_boxes, pred_labels, gt_boxes, gt_labels, thresholds=np.array([0.7, 0.5, 0.5])):
-    if isinstance(pred_boxes, torch.Tensor):
-        pred_boxes = pred_boxes.cpu().numpy()
-    if isinstance(pred_labels, torch.Tensor):
-        pred_labels = pred_labels.cpu().numpy()
-    if isinstance(gt_boxes, torch.Tensor):
-        gt_boxes = gt_boxes.cpu().numpy()
-    if isinstance(gt_labels, torch.Tensor):
-        gt_labels = gt_labels.cpu().numpy()
-
-    num_classes = thresholds.shape[0]
-    tp = np.zeros(num_classes, dtype=np.int64)
-    fp = np.zeros(num_classes, dtype=np.int64)
-    fn = np.zeros(num_classes, dtype=np.int64)
-
-    for i in range(num_classes):
-        pred_boxes_i = pred_boxes[pred_labels == i+1]
-        gt_boxes_i = gt_boxes[gt_labels == i+1]
-        iou = boxes_iou3d_gpu(torch.from_numpy(pred_boxes_i).cuda(), torch.from_numpy(gt_boxes_i).cuda()).cpu().numpy()
-        tp[i] = np.sum(np.any(iou > thresholds[i], axis=1))
-        fp[i] = pred_boxes_i.shape[0] - tp[i]
-        fn[i] = gt_boxes_i.shape[0] - tp[i]
-
-    return tp, fp, fn
 
 def statistics_info(cfg, ret_dict, metric, disp_dict):
     for cur_thresh in cfg.MODEL.POST_PROCESSING.RECALL_THRESH_LIST:
@@ -80,10 +56,6 @@ def eval_one_epoch(cfg, args, model, dataloader, epoch_id, logger, dist_test=Fal
     if cfg.LOCAL_RANK == 0:
         progress_bar = tqdm.tqdm(total=len(dataloader), leave=True, desc='eval', dynamic_ncols=True)
     start_time = time.time()
-    # for debugging
-    tp = np.zeros(3, dtype=np.int64)
-    fp = np.zeros(3, dtype=np.int64)
-    fn = np.zeros(3, dtype=np.int64)
     for i, batch_dict in enumerate(dataloader):
         load_data_to_gpu(batch_dict)
 
@@ -92,17 +64,6 @@ def eval_one_epoch(cfg, args, model, dataloader, epoch_id, logger, dist_test=Fal
 
         with torch.no_grad():
             pred_dicts, ret_dict = model(batch_dict)
-
-        if draw_scenes:
-            from visual_utils.open3d_vis_utils import draw_batch_scenes
-            draw_batch_scenes(batch_dict, pred_dicts)
-        
-        for i in range(batch_dict['batch_size']):
-            res = statistics(pred_dicts[i]['pred_boxes'], pred_dicts[i]['pred_labels'],
-                          batch_dict['gt_boxes'][i][:,:7], batch_dict['gt_boxes'][i][:,7])
-            tp += res[0]
-            fp += res[1]
-            fn += res[2]
 
         disp_dict = {}
 
@@ -121,9 +82,6 @@ def eval_one_epoch(cfg, args, model, dataloader, epoch_id, logger, dist_test=Fal
         if cfg.LOCAL_RANK == 0:
             progress_bar.set_postfix(disp_dict)
             progress_bar.update()
-
-    # print only tp, fp, fn
-    print(tp, fp, fn)
 
     if cfg.LOCAL_RANK == 0:
         progress_bar.close()
