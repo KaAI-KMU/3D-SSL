@@ -111,8 +111,8 @@ class AxisAlignedTargetAssigner(object):
                         selected_cls_scores = None
                 
                 if score_weight:
-                    selected_reg_scores = weight_func(selected_reg_scores - tau_reg[self.class_mapper[anchor_class_name]])
-                    selected_cls_scores = weight_func(selected_cls_scores - tau_cls[self.class_mapper[anchor_class_name]])
+                    selected_reg_scores = weight_func(selected_reg_scores, tau_reg[self.class_mapper[anchor_class_name]])
+                    selected_cls_scores = weight_func(selected_cls_scores, tau_cls[self.class_mapper[anchor_class_name]])
 
                 single_target = self.assign_targets_single(
                     anchors,

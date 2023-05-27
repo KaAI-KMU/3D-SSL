@@ -271,10 +271,11 @@ def plot_boxes_score(boxes, scores):
 def circle_func(x, tau):
     # y = -sqrt(tau^2 - x^2) + tau (x < tau)
     # y = sqrt((1-tau)^2 - (x-1)^2) + tau (tau <= x)
-    # torch
+    if tau.shape == torch.Size([]):
+        tau = tau.unsqueeze(0).repeat(x.shape[0])
     y = torch.zeros_like(x)
-    y[x < tau] = -torch.sqrt(tau**2 - x[x < tau]**2) + tau
-    y[x >= tau] = torch.sqrt((1-tau)**2 - (x[x >= tau]-1)**2) + tau
+    y[x < tau] = -torch.sqrt(tau[x < tau]**2 - x[x < tau]**2) + tau[x < tau]
+    y[x >= tau] = torch.sqrt((1-tau[x >= tau])**2 - (x[x >= tau]-1)**2) + tau[x >= tau]
     return y
 
 def ramp_func(x, tau):
