@@ -114,7 +114,7 @@ MODEL:
                 SCORE_WEIGHTS: True
                 REG_WEIGHT_TYPE: iou_scores
                 CLS_WEIGHT_TYPE: iou_scores
-                SIGMOID: True
+                WEIGHT_FUNC: circle_func
                 TAU_REG: [0.5, 0.25, 0.25]
                 TAU_CLS: [0.4, 0.4, 0.4]                
 
@@ -221,10 +221,10 @@ MODEL:
                 'code_weights': [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
             }
             SCORE_WEIGHTS:
-                WEIGHT_FUNC: circle_func
+                SCORE_WEIGHTS: True
                 REG_WEIGHT_TYPE: iou_scores
                 CLS_WEIGHT_TYPE: iou_scores
-                SIGMOID: True
+                WEIGHT_FUNC: circle_func
                 TAU_REG: [0.5, 0.25, 0.25]
                 TAU_CLS: [0.4, 0.4, 0.4]
                 CLASS_NAMES: ['Car', 'Pedestrian', 'Cyclist']
