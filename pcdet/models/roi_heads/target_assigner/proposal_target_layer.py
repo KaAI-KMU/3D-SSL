@@ -3,6 +3,7 @@ import torch
 import torch.nn as nn
 
 from ....ops.iou3d_nms import iou3d_nms_utils
+from ....utils.ssl_utils import weight_functions
 
 
 class ProposalTargetLayer(nn.Module):
@@ -81,12 +82,12 @@ class ProposalTargetLayer(nn.Module):
         gt_boxes = batch_dict['gt_boxes']
         if 'score_weight_cfg' not in batch_dict:
             score_weight = False
-            sigmoid_weight = False
+            weight_func = None
             cls_scores = None
             reg_scores = None
         else:
             score_weight = True
-            sigmoid_weight = batch_dict['score_weight_cfg'].SIGMOID
+            weight_func = weight_functions[batch_dict['score_weight_cfg'].WEIGHT_FUNC]
             score_weights_cfg = batch_dict['score_weight_cfg']
             cls_scores = batch_dict[score_weights_cfg.CLS_WEIGHT_TYPE]
             reg_scores = batch_dict[score_weights_cfg.REG_WEIGHT_TYPE]
@@ -131,11 +132,11 @@ class ProposalTargetLayer(nn.Module):
             batch_roi_ious[index] = max_overlaps[sampled_inds]
             batch_roi_scores[index] = cur_roi_scores[sampled_inds]
             batch_gt_of_rois[index] = cur_gt[gt_assignment[sampled_inds]]
-            if sigmoid_weight:
+            if score_weight:
                 batch_cls_score_weights[index] = \
-                    _sigmoid(cur_cls_scores[gt_assignment[sampled_inds]], tau_cls[batch_gt_of_rois[index][:, -1].type(torch.int32)-1])
+                    weight_func(cur_cls_scores[gt_assignment[sampled_inds]], tau_cls[batch_gt_of_rois[index][:, -1].type(torch.int32)-1])
                 batch_reg_score_weights[index] = \
-                    _sigmoid(cur_reg_scores[gt_assignment[sampled_inds]], tau_reg[batch_gt_of_rois[index][:, -1].type(torch.int32)-1])
+                    weight_func(cur_reg_scores[gt_assignment[sampled_inds]], tau_reg[batch_gt_of_rois[index][:, -1].type(torch.int32)-1])
 
         return batch_rois, batch_gt_of_rois, batch_roi_ious, batch_roi_scores, batch_roi_labels,\
             batch_cls_score_weights, batch_reg_score_weights
@@ -252,6 +253,3 @@ class ProposalTargetLayer(nn.Module):
                 gt_assignment[roi_mask] = original_gt_assignment[cur_gt_assignment]
 
         return max_overlaps, gt_assignment
-    
-def _sigmoid(x, tau):
-    return torch.sigmoid(x - tau)

@@ -266,3 +266,21 @@ def plot_boxes_score(boxes, scores):
         ax1.plot(x, gaussian(x), color='red', linewidth=0.5)
 
     plt.show()
+
+
+def circle_func(x, tau):
+    # y = -sqrt(tau^2 - x^2) + tau (x < tau)
+    # y = sqrt((1-tau)^2 - (x-1)^2) + tau (tau <= x)
+    # torch
+    y = torch.zeros_like(x)
+    y[x < tau] = -torch.sqrt(tau**2 - x[x < tau]**2) + tau
+    y[x >= tau] = torch.sqrt((1-tau)**2 - (x[x >= tau]-1)**2) + tau
+    return y
+
+def ramp_func(x, tau):
+    return x
+
+weight_functions = {
+    'circle_func': circle_func,
+    'ramp_func': ramp_func,
+}

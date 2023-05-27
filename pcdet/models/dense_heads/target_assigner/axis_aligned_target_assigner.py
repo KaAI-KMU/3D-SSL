@@ -3,6 +3,7 @@ import torch
 
 from ....ops.iou3d_nms import iou3d_nms_utils
 from ....utils import box_utils
+from ....utils.ssl_utils import weight_functions
 
 
 class AxisAlignedTargetAssigner(object):
@@ -48,12 +49,12 @@ class AxisAlignedTargetAssigner(object):
         """
         if score_weight_cfg is None:
             score_weight = False
-            sigmoid_weight = False
+            weight_func = None
             reg_score_type = list(scores.keys())[0]
             cls_score_type = list(scores.keys())[1]
         else:
             score_weight = True
-            sigmoid_weight = score_weight_cfg.SIGMOID
+            weight_func = weight_functions[score_weight_cfg.WEIGHT_FUNC]
             reg_score_type = score_weight_cfg.REG_WEIGHT_TYPE
             cls_score_type = score_weight_cfg.CLS_WEIGHT_TYPE
             tau_reg = torch.tensor(score_weight_cfg.TAU_REG, device=gt_boxes_with_classes.device)
@@ -109,9 +110,9 @@ class AxisAlignedTargetAssigner(object):
                         selected_reg_scores = None
                         selected_cls_scores = None
                 
-                if sigmoid_weight:
-                    selected_reg_scores = torch.sigmoid(selected_reg_scores - tau_reg[self.class_mapper[anchor_class_name]])
-                    selected_cls_scores = torch.sigmoid(selected_cls_scores - tau_cls[self.class_mapper[anchor_class_name]])
+                if score_weight:
+                    selected_reg_scores = weight_func(selected_reg_scores - tau_reg[self.class_mapper[anchor_class_name]])
+                    selected_cls_scores = weight_func(selected_cls_scores - tau_cls[self.class_mapper[anchor_class_name]])
 
                 single_target = self.assign_targets_single(
                     anchors,
