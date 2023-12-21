@@ -85,16 +85,8 @@ class AnchorHeadTemplate(nn.Module):
             'dir_loss_func',
             loss_utils.WeightedCrossEntropyLoss()
         )
-        if losses_cfg.get('SCORE_WEIGHTS', None) is not None:
-            self.score_weight = True
-            self.reg_score_weight_type = losses_cfg.SCORE_WEIGHTS.REG_WEIGHT_TYPE
-            self.cls_score_weight_type = losses_cfg.SCORE_WEIGHTS.CLS_WEIGHT_TYPE
-        else:
-            self.score_weight = False
-            self.reg_score_weight_type = None
-            self.cls_score_weight_type = None
 
-    def assign_targets(self, gt_boxes, scores):
+    def assign_targets(self, gt_boxes):
         """
         Args:
             gt_boxes: (B, M, 8)
@@ -102,14 +94,13 @@ class AnchorHeadTemplate(nn.Module):
 
         """
         targets_dict = self.target_assigner.assign_targets(
-            self.anchors, gt_boxes, scores, reg_score_type=self.reg_score_weight_type, cls_score_type=self.cls_score_weight_type
+            self.anchors, gt_boxes
         )
         return targets_dict
 
     def get_cls_layer_loss(self):
         cls_preds = self.forward_ret_dict['cls_preds']
         box_cls_labels = self.forward_ret_dict['box_cls_labels']
-        cls_score_weights = self.forward_ret_dict['cls_score_weights'].unsqueeze(dim=-1).repeat(1,1,self.num_class)
         batch_size = int(cls_preds.shape[0])
         cared = box_cls_labels >= 0  # [N, num_anchors]
         positives = box_cls_labels > 0
@@ -135,11 +126,7 @@ class AnchorHeadTemplate(nn.Module):
         cls_preds = cls_preds.view(batch_size, -1, self.num_class)
         one_hot_targets = one_hot_targets[..., 1:]
         cls_loss_src = self.cls_loss_func(cls_preds, one_hot_targets, weights=cls_weights)  # [N, M]
-        if self.score_weight:
-            cls_loss = cls_loss_src * cls_score_weights
-        else:
-            cls_loss = cls_loss_src
-        cls_loss = cls_loss.sum() / batch_size
+        cls_loss = cls_loss_src.sum() / batch_size
 
         cls_loss = cls_loss * self.model_cfg.LOSS_CONFIG.LOSS_WEIGHTS['cls_weight']
         tb_dict = {
@@ -177,7 +164,6 @@ class AnchorHeadTemplate(nn.Module):
         box_dir_cls_preds = self.forward_ret_dict.get('dir_cls_preds', None)
         box_reg_targets = self.forward_ret_dict['box_reg_targets']
         box_cls_labels = self.forward_ret_dict['box_cls_labels']
-        reg_score_weights = self.forward_ret_dict['reg_score_weights'].unsqueeze(dim=-1).repeat(1,1,1,box_reg_targets.shape[-1])
         batch_size = int(box_preds.shape[0])
 
         positives = box_cls_labels > 0
@@ -201,11 +187,7 @@ class AnchorHeadTemplate(nn.Module):
         # sin(a - b) = sinacosb-cosasinb
         box_preds_sin, reg_targets_sin = self.add_sin_difference(box_preds, box_reg_targets)
         loc_loss_src = self.reg_loss_func(box_preds_sin, reg_targets_sin, weights=reg_weights)  # [N, M]
-        if self.score_weight:
-            loc_loss = loc_loss_src * reg_score_weights
-        else:
-            loc_loss = loc_loss_src
-        loc_loss = loc_loss.sum() / batch_size
+        loc_loss = loc_loss_src.sum() / batch_size
 
         loc_loss = loc_loss * self.model_cfg.LOSS_CONFIG.LOSS_WEIGHTS['loc_weight']
         box_loss = loc_loss

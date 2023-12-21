@@ -216,10 +216,6 @@ MODEL:
                 'rcnn_corner_weight': 1.0,
                 'code_weights': [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
             }
-            SCORE_WEIGHTS:
-                SCORE_WEIGHTS: True
-                REG_WEIGHT_TYPE: iou_scores
-                CLS_WEIGHT_TYPE: cls_scores            
 
     POST_PROCESSING:
         RECALL_THRESH_LIST: [0.3, 0.5, 0.7]

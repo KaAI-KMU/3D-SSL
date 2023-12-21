@@ -33,28 +33,18 @@ class AxisAlignedTargetAssigner(object):
         #         for idx, name in enumerate(rpn_head_cfg['HEAD_CLS_NAME']):
         #             self.gt_remapping[name] = idx + 1
 
-    def assign_targets(self, all_anchors, gt_boxes_with_classes, scores=None, reg_score_type=None, cls_score_type=None):
+    def assign_targets(self, all_anchors, gt_boxes_with_classes):
         """
         Args:
             all_anchors: [(N, 7), ...]
             gt_boxes: (B, M, 8)
-            gt_classes: (B, M)
-            scores: {'reg_score_type': (B, N, 1), 'cls_score_type': (B, N, num_class)}
-            reg_score_type: str
-            cls_score_type: str
         Returns:
 
         """
-        if reg_score_type is None:
-            assert cls_score_type is None
-            reg_score_type = list(scores.keys())[0]
-            cls_score_type = list(scores.keys())[1]
 
         bbox_targets = []
         cls_labels = []
         reg_weights = []
-        reg_score_weights = []
-        cls_score_weights = []
 
         batch_size = gt_boxes_with_classes.shape[0]
         gt_classes = gt_boxes_with_classes[:, :, -1]
@@ -66,8 +56,6 @@ class AxisAlignedTargetAssigner(object):
                 cnt -= 1
             cur_gt = cur_gt[:cnt + 1]
             cur_gt_classes = gt_classes[k][:cnt + 1].int()
-            cur_reg_scores = scores[reg_score_type][k][:cnt + 1]
-            cur_cls_scores = scores[cls_score_type][k][:cnt + 1]
 
             target_list = []
             for anchor_class_name, anchors in zip(self.anchor_class_names, all_anchors):
@@ -91,15 +79,11 @@ class AxisAlignedTargetAssigner(object):
                     feature_map_size = anchors.shape[:3]
                     anchors = anchors.view(-1, anchors.shape[-1])
                     selected_classes = cur_gt_classes[mask]
-                    selected_reg_scores = cur_reg_scores[mask]
-                    selected_cls_scores = cur_cls_scores[mask]
 
                 single_target = self.assign_targets_single(
                     anchors,
                     cur_gt[mask],
                     gt_classes=selected_classes,
-                    reg_scores=selected_reg_scores,
-                    cls_scores=selected_cls_scores,
                     matched_threshold=self.matched_thresholds[anchor_class_name],
                     unmatched_threshold=self.unmatched_thresholds[anchor_class_name]
                 )
@@ -109,24 +93,18 @@ class AxisAlignedTargetAssigner(object):
                 target_dict = {
                     'box_cls_labels': [t['box_cls_labels'].view(-1) for t in target_list],
                     'box_reg_targets': [t['box_reg_targets'].view(-1, self.box_coder.code_size) for t in target_list],
-                    'reg_weights': [t['reg_weights'].view(-1) for t in target_list],
-                    'reg_score_weights': [t['reg_score_weights'].view(-1) for t in target_list],
-                    'cls_score_weights': [t['cls_score_weights'].view(-1) for t in target_list]
+                    'reg_weights': [t['reg_weights'].view(-1) for t in target_list]
                 }
 
                 target_dict['box_reg_targets'] = torch.cat(target_dict['box_reg_targets'], dim=0)
                 target_dict['box_cls_labels'] = torch.cat(target_dict['box_cls_labels'], dim=0).view(-1)
                 target_dict['reg_weights'] = torch.cat(target_dict['reg_weights'], dim=0).view(-1)
-                target_dict['reg_score_weights'] = torch.cat(target_dict['reg_score_weights'], dim=0).view(-1)
-                target_dict['cls_score_weights'] = torch.cat(target_dict['cls_score_weights'], dim=0).view(-1)
             else:
                 target_dict = {
                     'box_cls_labels': [t['box_cls_labels'].view(*feature_map_size, -1) for t in target_list],
                     'box_reg_targets': [t['box_reg_targets'].view(*feature_map_size, -1, self.box_coder.code_size)
                                         for t in target_list],
-                    'reg_weights': [t['reg_weights'].view(*feature_map_size, -1) for t in target_list],
-                    'reg_score_weights': [t['reg_score_weights'].view(*feature_map_size, -1) for t in target_list],
-                    'cls_score_weights': [t['cls_score_weights'].view(*feature_map_size, -1) for t in target_list]
+                    'reg_weights': [t['reg_weights'].view(*feature_map_size, -1) for t in target_list]
                 }
                 target_dict['box_reg_targets'] = torch.cat(
                     target_dict['box_reg_targets'], dim=-2
@@ -134,40 +112,30 @@ class AxisAlignedTargetAssigner(object):
 
                 target_dict['box_cls_labels'] = torch.cat(target_dict['box_cls_labels'], dim=-1).view(-1)
                 target_dict['reg_weights'] = torch.cat(target_dict['reg_weights'], dim=-1).view(-1)
-                target_dict['reg_score_weights'] = torch.cat(target_dict['reg_score_weights'], dim=-1).view(-1)
-                target_dict['cls_score_weights'] = torch.cat(target_dict['cls_score_weights'], dim=-1).view(-1)
 
             bbox_targets.append(target_dict['box_reg_targets'])
             cls_labels.append(target_dict['box_cls_labels'])
             reg_weights.append(target_dict['reg_weights'])
-            reg_score_weights.append(target_dict['reg_score_weights'])
-            cls_score_weights.append(target_dict['cls_score_weights'])
-            
 
         bbox_targets = torch.stack(bbox_targets, dim=0)
 
         cls_labels = torch.stack(cls_labels, dim=0)
         reg_weights = torch.stack(reg_weights, dim=0)
-        reg_score_weights = torch.stack(reg_score_weights, dim=0)
-        cls_score_weights = torch.stack(cls_score_weights, dim=0)
         all_targets_dict = {
             'box_cls_labels': cls_labels,
             'box_reg_targets': bbox_targets,
-            'reg_weights': reg_weights,
-            'reg_score_weights': reg_score_weights,
-            'cls_score_weights': cls_score_weights
+            'reg_weights': reg_weights
+
         }
         return all_targets_dict
 
-    def assign_targets_single(self, anchors, gt_boxes, gt_classes, reg_scores, cls_scores, matched_threshold=0.6, unmatched_threshold=0.45):
+    def assign_targets_single(self, anchors, gt_boxes, gt_classes, matched_threshold=0.6, unmatched_threshold=0.45):
 
         num_anchors = anchors.shape[0]
         num_gt = gt_boxes.shape[0]
 
         labels = torch.ones((num_anchors,), dtype=torch.int32, device=anchors.device) * -1
         gt_ids = torch.ones((num_anchors,), dtype=torch.int32, device=anchors.device) * -1
-        reg_score_weights = torch.ones((num_anchors,), dtype=torch.float32, device=anchors.device)
-        cls_score_weights = torch.ones((num_anchors,), dtype=torch.float32, device=anchors.device)
 
         if len(gt_boxes) > 0 and anchors.shape[0] > 0:
             anchor_by_gt_overlap = iou3d_nms_utils.boxes_iou3d_gpu(anchors[:, 0:7], gt_boxes[:, 0:7]) \
@@ -188,15 +156,11 @@ class AxisAlignedTargetAssigner(object):
             gt_inds_force = anchor_to_gt_argmax[anchors_with_max_overlap]
             labels[anchors_with_max_overlap] = gt_classes[gt_inds_force]
             gt_ids[anchors_with_max_overlap] = gt_inds_force.int()
-            reg_score_weights[anchors_with_max_overlap] = reg_scores[gt_inds_force]
-            cls_score_weights[anchors_with_max_overlap] = cls_scores[gt_inds_force]
 
             pos_inds = anchor_to_gt_max >= matched_threshold
             gt_inds_over_thresh = anchor_to_gt_argmax[pos_inds]
             labels[pos_inds] = gt_classes[gt_inds_over_thresh]
             gt_ids[pos_inds] = gt_inds_over_thresh.int()
-            reg_score_weights[pos_inds] = reg_scores[gt_inds_over_thresh]
-            cls_score_weights[pos_inds] = cls_scores[gt_inds_over_thresh]
             bg_inds = (anchor_to_gt_max < unmatched_threshold).nonzero()[:, 0]
         else:
             bg_inds = torch.arange(num_anchors, device=anchors.device)
@@ -242,7 +206,5 @@ class AxisAlignedTargetAssigner(object):
             'box_cls_labels': labels,
             'box_reg_targets': bbox_targets,
             'reg_weights': reg_weights,
-            'reg_score_weights': reg_score_weights,
-            'cls_score_weights': cls_score_weights
         }
         return ret_dict

@@ -51,6 +51,7 @@ def parse_config():
     parser.add_argument('--use_amp', action='store_true', help='use mix precision training')
     
     parser.add_argument('--split_name', type=str, default=None, help='split name')
+    parser.add_argument('--repeat', type=int, default=1, help='')
 
     args = parser.parse_args()
 
@@ -58,6 +59,9 @@ def parse_config():
     cfg.TAG = Path(args.cfg_file).stem
     cfg.EXP_GROUP_PATH = '/'.join(args.cfg_file.split('/')[1:-1])  # remove 'cfgs' and 'xxxx.yaml'
     
+    cfg.DATA_CONFIG.SPLIT_NAME = args.split_name
+    cfg.DATA_CONFIG.REPEAT = args.repeat
+
     args.use_amp = args.use_amp or cfg.OPTIMIZATION.get('USE_AMP', False)
 
     if args.set_cfgs is not None:
@@ -113,8 +117,6 @@ def main():
         os.system('cp %s %s' % (args.cfg_file, output_dir))
 
     tb_log = SummaryWriter(log_dir=str(output_dir / 'tensorboard')) if cfg.LOCAL_RANK == 0 else None
-
-    cfg.DATA_CONFIG.SPLIT_NAME = args.split_name
 
     logger.info("----------- Create dataloader & network & optimizer -----------")
     train_set, train_loader, train_sampler = build_dataloader(

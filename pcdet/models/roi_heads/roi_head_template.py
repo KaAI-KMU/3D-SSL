@@ -25,14 +25,6 @@ class RoIHeadTemplate(nn.Module):
             'reg_loss_func',
             loss_utils.WeightedSmoothL1Loss(code_weights=losses_cfg.LOSS_WEIGHTS['code_weights'])
         )
-        if losses_cfg.get('SCORE_WEIGHTS', None) is not None:
-            self.score_weight = True
-            self.reg_score_weight_type = losses_cfg.SCORE_WEIGHTS.REG_WEIGHT_TYPE
-            self.cls_score_weight_type = losses_cfg.SCORE_WEIGHTS.CLS_WEIGHT_TYPE
-        else:
-            self.score_weight = False
-            self.reg_score_weight_type = None
-            self.cls_score_weight_type = None
 
     def make_fc_layers(self, input_channels, output_channels, fc_list):
         fc_layers = []
@@ -111,17 +103,12 @@ class RoIHeadTemplate(nn.Module):
 
     def assign_targets(self, batch_dict):
         batch_size = batch_dict['batch_size']
-        batch_dict['score_weight'] = self.score_weight
-        batch_dict['reg_score_weight_type'] = self.reg_score_weight_type if self.score_weight else list(batch_dict['scores'].keys())[0]
-        batch_dict['cls_score_weight_type'] = self.cls_score_weight_type if self.score_weight else list(batch_dict['scores'].keys())[1]
         with torch.no_grad():
             targets_dict = self.proposal_target_layer.forward(batch_dict)
 
         rois = targets_dict['rois']  # (B, N, 7 + C)
         gt_of_rois = targets_dict['gt_of_rois']  # (B, N, 7 + C + 1)
         targets_dict['gt_of_rois_src'] = gt_of_rois.clone().detach()
-        targets_dict['cls_score_weights'] = targets_dict['cls_score_weights'].clone().detach()
-        targets_dict['reg_score_weights'] = targets_dict['reg_score_weights'].clone().detach()
 
         # canonical transformation
         roi_center = rois[:, :, 0:3]
@@ -155,7 +142,6 @@ class RoIHeadTemplate(nn.Module):
         rcnn_reg = forward_ret_dict['rcnn_reg']  # (rcnn_batch_size, C)
         roi_boxes3d = forward_ret_dict['rois']
         rcnn_batch_size = gt_boxes3d_ct.view(-1, code_size).shape[0]
-        reg_score_weights = forward_ret_dict['reg_score_weights'].view(-1,rcnn_batch_size)
 
         fg_mask = (reg_valid_mask > 0)
         fg_sum = fg_mask.long().sum().item()
@@ -174,8 +160,6 @@ class RoIHeadTemplate(nn.Module):
                 rcnn_reg.view(rcnn_batch_size, -1).unsqueeze(dim=0),
                 reg_targets.unsqueeze(dim=0),
             )  # [B, M, 7]
-            if self.score_weight:
-                rcnn_loss_reg = rcnn_loss_reg * reg_score_weights.unsqueeze(-1).repeat(1, 1, 7)
             rcnn_loss_reg = (rcnn_loss_reg.view(rcnn_batch_size, -1) * fg_mask.unsqueeze(dim=-1).float()).sum() / max(fg_sum, 1)
             rcnn_loss_reg = rcnn_loss_reg * loss_cfgs.LOSS_WEIGHTS['rcnn_reg_weight']
             tb_dict['rcnn_loss_reg'] = rcnn_loss_reg.item()
@@ -201,7 +185,7 @@ class RoIHeadTemplate(nn.Module):
 
                 loss_corner = loss_utils.get_corner_loss_lidar(
                     rcnn_boxes3d[:, 0:7],
-                    gt_of_rois_src[fg_mask][:, 0:7],
+                    gt_of_rois_src[fg_mask][:, 0:7]
                 )
                 loss_corner = loss_corner.mean()
                 loss_corner = loss_corner * loss_cfgs.LOSS_WEIGHTS['rcnn_corner_weight']
@@ -217,24 +201,18 @@ class RoIHeadTemplate(nn.Module):
         loss_cfgs = self.model_cfg.LOSS_CONFIG
         rcnn_cls = forward_ret_dict['rcnn_cls']
         rcnn_cls_labels = forward_ret_dict['rcnn_cls_labels'].view(-1)
-        cls_score_weights = forward_ret_dict['cls_score_weights'].view(-1)
         if loss_cfgs.CLS_LOSS == 'BinaryCrossEntropy':
             rcnn_cls_flat = rcnn_cls.view(-1)
             batch_loss_cls = F.binary_cross_entropy(torch.sigmoid(rcnn_cls_flat), rcnn_cls_labels.float(), reduction='none')
             cls_valid_mask = (rcnn_cls_labels >= 0).float()
-            rcnn_loss_cls = batch_loss_cls * cls_valid_mask
-            if self.score_weight:
-                rcnn_loss_cls = rcnn_loss_cls * cls_score_weights
-            rcnn_loss_cls = rcnn_loss_cls.sum() / torch.clamp(cls_valid_mask.sum(), min=1.0)
+            rcnn_loss_cls = (batch_loss_cls * cls_valid_mask).sum() / torch.clamp(cls_valid_mask.sum(), min=1.0)
         elif loss_cfgs.CLS_LOSS == 'CrossEntropy':
             batch_loss_cls = F.cross_entropy(rcnn_cls, rcnn_cls_labels, reduction='none', ignore_index=-1)
             cls_valid_mask = (rcnn_cls_labels >= 0).float()
-            rcnn_loss_cls = batch_loss_cls * cls_valid_mask
-            if self.score_weight:
-                rcnn_loss_cls = rcnn_loss_cls * cls_score_weights
-            rcnn_loss_cls = rcnn_loss_cls.sum() / torch.clamp(cls_valid_mask.sum(), min=1.0)
+            rcnn_loss_cls = (batch_loss_cls * cls_valid_mask).sum() / torch.clamp(cls_valid_mask.sum(), min=1.0)
         else:
             raise NotImplementedError
+
         rcnn_loss_cls = rcnn_loss_cls * loss_cfgs.LOSS_WEIGHTS['rcnn_cls_weight']
         tb_dict = {'rcnn_loss_cls': rcnn_loss_cls.item()}
         return rcnn_loss_cls, tb_dict

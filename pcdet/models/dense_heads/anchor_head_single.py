@@ -1,7 +1,5 @@
 import numpy as np
-import torch
 import torch.nn as nn
-import copy
 
 from .anchor_head_template import AnchorHeadTemplate
 
@@ -60,11 +58,8 @@ class AnchorHeadSingle(AnchorHeadTemplate):
             dir_cls_preds = None
 
         if self.training:
-            scores = {}
-            for key in data_dict['score_keys']:
-                scores[key] = copy.deepcopy(data_dict[key])
             targets_dict = self.assign_targets(
-                gt_boxes=data_dict['gt_boxes'], scores=scores
+                gt_boxes=data_dict['gt_boxes']
             )
             self.forward_ret_dict.update(targets_dict)
 
