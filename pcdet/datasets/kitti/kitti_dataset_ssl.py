@@ -1,15 +1,7 @@
-import copy
 import pickle
-
 import numpy as np
-import torch
-from skimage import io
 
 from pcdet.datasets.kitti.kitti_dataset import KittiDataset
-from pcdet.datasets.kitti import kitti_utils
-from pcdet.ops.roiaware_pool3d import roiaware_pool3d_utils
-from pcdet.utils import box_utils, calibration_kitti, common_utils, object3d_kitti, ssl_utils
-from pcdet.datasets.dataset import DatasetTemplate
 
 
 class KittiDatasetSSL(KittiDataset):
@@ -25,7 +17,7 @@ class KittiDatasetSSL(KittiDataset):
         split_name = dataset_cfg.get('SPLIT_NAME', None)
         dataset_cfg['DATA_AUGMENTOR']['SPLIT_NAME'] = split_name
         super().__init__(
-            dataset_cfg=dataset_cfg, class_names=class_names, training=training, root_path=root_path, logger=logger
+            dataset_cfg=dataset_cfg, class_names=class_names, training=training, pretraining=False, root_path=root_path, logger=logger
         )
         if split_name is not None:
             imageset_file = self.root_path / 'ImageSets' / ('train_%s.txt' % split_name)
@@ -56,6 +48,14 @@ class KittiDatasetSSL(KittiDataset):
         data_dict['image_shape'] = self.kitti_infos[index]['image']['image_shape']
         data_dict['data_index'] = index
         return data_dict
+    
+    def __len__(self):
+        length = len(self.kitti_infos) * self.repeat if self.training else len(self.kitti_infos)
+
+        if self._merge_all_iters_to_one_epoch:
+            return length * self.total_epochs
+
+        return length
 
     def generate_datadict(self, pred_dicts, batch_dict):
         batch_size = batch_dict['batch_size']
@@ -87,82 +87,35 @@ class KittiDatasetSSL(KittiDataset):
         batch_dict = self.collate_batch(data_list)
         return batch_dict
     
-    def create_db_infos(self, info_path=None, used_classes=None, split='train'):
-        import torch
 
-        database_save_path = Path(self.root_path) / ('gt_database' if split == 'train' else ('gt_database_%s_' % split))
-        db_info_save_path = Path(self.root_path) / ('kitti_dbinfos_%s_%s.pkl' % (split, self.dataset_cfg['SPLIT_NAME']))
-
-        all_db_infos = {}
-
-        with open(info_path, 'rb') as f:
-            infos = pickle.load(f)
-
-        cnt = 0
-        for k in range(len(infos)):
-            info = infos[k]
-            sample_idx = info['point_cloud']['lidar_idx']
-            if int(sample_idx) not in self.label_indices:
-                continue
-
-            cnt += 1
-            print('gt_database sample: %d/%d' % (cnt, len(self.label_indices)))
-            points = self.get_lidar(sample_idx)
-            annos = info['annos']
-            names = annos['name']
-            difficulty = annos['difficulty']
-            bbox = annos['bbox']
-            gt_boxes = annos['gt_boxes_lidar']
-
-            num_obj = gt_boxes.shape[0]
-            point_indices = roiaware_pool3d_utils.points_in_boxes_cpu(
-                torch.from_numpy(points[:, 0:3]), torch.from_numpy(gt_boxes)
-            ).numpy()  # (nboxes, npoints)
-
-            for i in range(num_obj):
-                filename = '%s_%s_%d.bin' % (sample_idx, names[i], i)
-                filepath = database_save_path / filename
-                gt_points = points[point_indices[i] > 0]
-
-                if (used_classes is None) or names[i] in used_classes:
-                    db_path = str(filepath.relative_to(self.root_path))  # gt_database/xxxxx.bin
-                    db_info = {'name': names[i], 'path': db_path, 'image_idx': sample_idx, 'gt_idx': i,
-                               'box3d_lidar': gt_boxes[i], 'num_points_in_gt': gt_points.shape[0],
-                               'difficulty': difficulty[i], 'bbox': bbox[i], 'score': annos['score'][i],
-                               'iou_scores': 1.0, 'cls_scores': 1.0}
-                    if names[i] in all_db_infos:
-                        all_db_infos[names[i]].append(db_info)
-                    else:
-                        all_db_infos[names[i]] = [db_info]
-
-        for k, v in all_db_infos.items():
-            print('Database %s: %d' % (k, len(v)))
-
-        with open(db_info_save_path, 'wb') as f:
-            pickle.dump(all_db_infos, f)
-
-
-def create_split_db_infos(dataset_cfg, class_names, data_path, save_path):
+def create_split_kitti_infos(dataset_cfg, class_names, data_path, save_path, workers=4):
     dataset = KittiDatasetSSL(dataset_cfg=dataset_cfg, class_names=class_names, root_path=data_path, training=False)
     train_split = 'train'
+    labeled_split_name = dataset_cfg['SPLIT_NAME']
+    train_filename = save_path / ('kitti_infos_%s_%s.pkl' % (train_split, labeled_split_name))
 
-    train_filename = save_path / ('kitti_infos_%s.pkl' % train_split)
+    print('---------------Start to generate data infos---------------')
+    dataset.set_split(train_split)
+    kitti_infos_train = dataset.get_infos(num_workers=workers, has_label=True, count_inside_pts=True)
+    with open(train_filename, 'wb') as f:
+        pickle.dump(kitti_infos_train, f)
+    print('Kitti info train file is saved to %s' % train_filename)
 
     print('---------------Start create groundtruth database for data augmentation---------------')
     dataset.set_split(train_split)
-    dataset.create_db_infos(train_filename, split=train_split)
+    dataset.create_groundtruth_database(train_filename, split=train_split, labeled_split_name=labeled_split_name)
     print('---------------Data preparation Done---------------')
 
 if __name__ == '__main__':
     import sys
-    if sys.argv.__len__() > 1 and sys.argv[1] == 'create_split_db_infos':
+    if sys.argv.__len__() > 1 and sys.argv[1] == 'create_split_infos':
         import yaml
         from pathlib import Path
         from easydict import EasyDict
         dataset_cfg = EasyDict(yaml.safe_load(open(sys.argv[2])))
         ROOT_DIR = (Path(__file__).resolve().parent / '../../../').resolve()
         dataset_cfg['SPLIT_NAME'] = sys.argv[3]
-        create_split_db_infos(
+        create_split_kitti_infos(
             dataset_cfg=dataset_cfg,
             class_names=['Car', 'Pedestrian', 'Cyclist'],
             data_path=ROOT_DIR / 'data' / 'kitti',

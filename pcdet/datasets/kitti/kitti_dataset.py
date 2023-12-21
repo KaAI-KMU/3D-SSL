@@ -3,6 +3,7 @@ import pickle
 
 import numpy as np
 from skimage import io
+from pathlib import Path
 
 from . import kitti_utils
 from ...ops.roiaware_pool3d import roiaware_pool3d_utils
@@ -11,7 +12,7 @@ from ..dataset import DatasetTemplate
 
 
 class KittiDataset(DatasetTemplate):
-    def __init__(self, dataset_cfg, class_names, training=True, root_path=None, logger=None):
+    def __init__(self, dataset_cfg, class_names, training=True, pretraining=True, root_path=None, logger=None):
         """
         Args:
             root_path:
@@ -20,11 +21,14 @@ class KittiDataset(DatasetTemplate):
             training:
             logger:
         """
+        self.split_name = dataset_cfg.get('SPLIT_NAME', None)
+        dataset_cfg['DATA_AUGMENTOR']['SPLIT_NAME'] = self.split_name
         super().__init__(
             dataset_cfg=dataset_cfg, class_names=class_names, training=training, root_path=root_path, logger=logger
         )
         self.split = self.dataset_cfg.DATA_SPLIT[self.mode]
         self.root_split_path = self.root_path / ('training' if self.split != 'test' else 'testing')
+        self.repeat = self.dataset_cfg.get('REPEAT', 1)
 
         if self.dataset_cfg.get('SPLIT_NAME', None) is not None:
             split_dir = self.root_path / 'ImageSets' / ("%s_%s.txt" % (self.split, self.dataset_cfg.SPLIT_NAME))
@@ -34,14 +38,16 @@ class KittiDataset(DatasetTemplate):
 
         self.kitti_infos = []
         self.score_keys = ['iou_scores', 'cls_scores']
-        self.include_kitti_data(self.mode)
+        self.include_kitti_data(self.mode, pretraining)
 
-    def include_kitti_data(self, mode):
+    def include_kitti_data(self, mode, pretraining=True):
         if self.logger is not None:
             self.logger.info('Loading KITTI dataset')
         kitti_infos = []
 
         for info_path in self.dataset_cfg.INFO_PATH[mode]:
+            if self.split_name is not None and mode == 'train' and pretraining:
+                info_path = info_path.replace('.pkl', '_%s.pkl' % self.split_name)
             info_path = self.root_path / info_path
             if not info_path.exists():
                 continue
@@ -228,11 +234,14 @@ class KittiDataset(DatasetTemplate):
             infos = executor.map(process_single_scene, sample_id_list)
         return list(infos)
 
-    def create_groundtruth_database(self, info_path=None, used_classes=None, split='train'):
+    def create_groundtruth_database(self, info_path=None, used_classes=None, split='train', labeled_split_name=None):
         import torch
 
         database_save_path = Path(self.root_path) / ('gt_database' if split == 'train' else ('gt_database_%s' % split))
-        db_info_save_path = Path(self.root_path) / ('kitti_dbinfos_%s.pkl' % split)
+        if labeled_split_name is not None:
+            db_info_save_path = Path(self.root_path) / ('kitti_dbinfos_%s_%s.pkl' % (split, labeled_split_name))
+        else:
+            db_info_save_path = Path(self.root_path) / ('kitti_dbinfos_%s.pkl' % split)
 
         database_save_path.mkdir(parents=True, exist_ok=True)
         all_db_infos = {}
@@ -262,15 +271,16 @@ class KittiDataset(DatasetTemplate):
                 gt_points = points[point_indices[i] > 0]
 
                 gt_points[:, :3] -= gt_boxes[i, :3]
-                with open(filepath, 'w') as f:
-                    gt_points.tofile(f)
+                if labeled_split_name is not None:
+                    with open(filepath, 'w') as f:
+                        gt_points.tofile(f)
 
                 if (used_classes is None) or names[i] in used_classes:
                     db_path = str(filepath.relative_to(self.root_path))  # gt_database/xxxxx.bin
                     db_info = {'name': names[i], 'path': db_path, 'image_idx': sample_idx, 'gt_idx': i,
                                'box3d_lidar': gt_boxes[i], 'num_points_in_gt': gt_points.shape[0],
                                'difficulty': difficulty[i], 'bbox': bbox[i], 'score': annos['score'][i],
-                               'iou_score': 1.0, 'cls_score': 1.0}
+                               'iou_scores': 1.0, 'cls_scores': 1.0}
                     if names[i] in all_db_infos:
                         all_db_infos[names[i]].append(db_info)
                     else:
@@ -378,8 +388,7 @@ class KittiDataset(DatasetTemplate):
 
     def __getitem__(self, index, prepare_data=True):
         # index = 4
-        if self._merge_all_iters_to_one_epoch:
-            index = index % len(self.kitti_infos)
+        index = index % len(self.kitti_infos)
 
         info = copy.deepcopy(self.kitti_infos[index])
 

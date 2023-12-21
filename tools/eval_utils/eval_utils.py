@@ -80,10 +80,7 @@ def eval_one_epoch(cfg, args, model, dataloader, epoch_id, logger, dist_test=Fal
     if cfg.LOCAL_RANK == 0:
         progress_bar = tqdm.tqdm(total=len(dataloader), leave=True, desc='eval', dynamic_ncols=True)
     start_time = time.time()
-    # for debugging
-    tp = np.zeros(3, dtype=np.int64)
-    fp = np.zeros(3, dtype=np.int64)
-    fn = np.zeros(3, dtype=np.int64)
+
     for i, batch_dict in enumerate(dataloader):
         load_data_to_gpu(batch_dict)
 
@@ -96,13 +93,6 @@ def eval_one_epoch(cfg, args, model, dataloader, epoch_id, logger, dist_test=Fal
         if draw_scenes:
             from visual_utils.open3d_vis_utils import draw_batch_scenes
             draw_batch_scenes(batch_dict, pred_dicts)
-        
-        for i in range(batch_dict['batch_size']):
-            res = statistics(pred_dicts[i]['pred_boxes'], pred_dicts[i]['pred_labels'],
-                          batch_dict['gt_boxes'][i][:,:7], batch_dict['gt_boxes'][i][:,7])
-            tp += res[0]
-            fp += res[1]
-            fn += res[2]
 
         disp_dict = {}
 
@@ -121,9 +111,6 @@ def eval_one_epoch(cfg, args, model, dataloader, epoch_id, logger, dist_test=Fal
         if cfg.LOCAL_RANK == 0:
             progress_bar.set_postfix(disp_dict)
             progress_bar.update()
-
-    # print only tp, fp, fn
-    print(tp, fp, fn)
 
     if cfg.LOCAL_RANK == 0:
         progress_bar.close()

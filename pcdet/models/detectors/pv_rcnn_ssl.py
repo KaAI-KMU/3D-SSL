@@ -17,6 +17,12 @@ class PVRCNNSSL(Detector3DTemplate):
         model_cfg_copy = copy.deepcopy(model_cfg)
         dataset_copy = copy.deepcopy(dataset)
 
+        self.filtering = model_cfg.SSL_CONFIG.get('FILTERING_CONFIG', None) is not None
+        if self.filtering:
+            cls_threshold = np.array(model_cfg.SSL_CONFIG.FILTERING_CONFIG.CLS_THRESHOLD)
+            iou_threshold = np.array(model_cfg.SSL_CONFIG.FILTERING_CONFIG.IOU_THRESHOLD)
+            self.thresholds = np.stack((cls_threshold, iou_threshold))
+
         self.pv_rcnn = PVRCNN(model_cfg=model_cfg, num_class=num_class, dataset=dataset)
         self.pv_rcnn_ema = PVRCNN(model_cfg=model_cfg_copy, num_class=num_class, dataset=dataset_copy)
         for param in self.pv_rcnn_ema.parameters():
@@ -30,9 +36,6 @@ class PVRCNNSSL(Detector3DTemplate):
     def forward(self, batch_dict):
         if self.training:
             batch_size = batch_dict['batch_size']
-            ssl_cfg = self.model_cfg.SSL_CONFIG
-            filtering = ssl_cfg.get('FILTERING_CONFIG', None) is not None
-
             load_data_to_gpu(batch_dict)
             with torch.no_grad():
                 self.pv_rcnn_ema.eval()
@@ -40,17 +43,12 @@ class PVRCNNSSL(Detector3DTemplate):
                     batch_dict = cur_module(batch_dict)
                 pred_dicts, _ = self.pv_rcnn_ema.post_processing(batch_dict)
 
-            if filtering: # Filter boxes by score
-                cls_threshold = np.array(self.model_cfg.SSL_CONFIG.FILTERING_CONFIG.CLS_THRESHOLD)
-                iou_threshold = np.array(self.model_cfg.SSL_CONFIG.FILTERING_CONFIG.IOU_THRESHOLD)
-                thresholds = np.stack((cls_threshold, iou_threshold))
-
             # Generate batch_dict with pseudo labels
             pseudo_label = copy.deepcopy(pred_dicts)
             for batch_idx in range(batch_size):
-                if filtering:
+                if self.filtering:
                     scores = torch.stack((pred_dicts[batch_idx]['pred_cls_scores'], pred_dicts[batch_idx]['pred_scores']))
-                    selected = box_filtering_by_score(pred_dicts[batch_idx]['pred_boxes'], pred_dicts[batch_idx]['pred_labels'], scores, thresholds)
+                    selected = box_filtering_by_score(pred_dicts[batch_idx]['pred_boxes'], pred_dicts[batch_idx]['pred_labels'], scores, self.thresholds)
                     for key, val in pred_dicts[batch_idx].items():
                         pseudo_label[batch_idx][key] = val[selected]
                 else:
