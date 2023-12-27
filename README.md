@@ -32,5 +32,5 @@ The training process involves two stages: Pretraining and Semi-Supervised Learni
    - Continue training in a semi-supervised manner using a pretrained model.
    - Example Command: 
      ```bash
-     python pretrain.py --cfg_file cfgs/kitti_models/pv_rcnn.yaml --split_name 002_1 --pretrained_model ../output/kitti_models/pv_rcnn/default/ckpt
+     python pretrain.py --cfg_file cfgs/kitti_models/pv_rcnn_ssl.yaml --split_name 002_1 --pretrained_model ../output/kitti_models/pv_rcnn/default/ckpt
      ```
