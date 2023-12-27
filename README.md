@@ -12,7 +12,7 @@ To set up the environment, follow these steps:
    - Use the command below to generate split database information.
    - Example Command: 
      ```bash
-     python -m pcdet.datasets.kitti.kitti_dataset create_split_db_infos tools/cfgs/dataset_configs/kitti_dataset.yaml 002_1
+     python -m pcdet.datasets.kitti.kitti_dataset_ssl create_split_infos tools/cfgs/dataset_configs/kitti_dataset.yaml 002_1
      ```
    - Note: Splits can be created by adding `.txt` files to `data/kitti/Imageset`, allowing for custom split configurations.
 
