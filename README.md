@@ -25,7 +25,7 @@ The training process involves two stages: Pretraining and Semi-Supervised Learni
    - Run the pretraining script with the specified configuration file and split name.
    - Example Command: 
      ```bash
-     python pretrain.py --cfg_file cfgs/kitti_models/pv_rcnn.yaml --split_name 002_1
+     python pretrain.py --cfg_file cfgs/kitti_models/pv_rcnn.yaml --split_name 002_1 --repeat 10
      ```
 
 2. **Semi-Supervised Learning**:
